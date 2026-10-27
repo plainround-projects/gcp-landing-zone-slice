@@ -8,10 +8,10 @@ A slice of a landing zone in an organization you own: three folders and four pro
 | --- | --- | --- |
 | **Organization** `example-lab.org` | The top of the hierarchy and the organization policies. | You bring it (a free Cloud Identity domain). |
 | **Folders** `production`, `non-production`, `shared` | Grouping, and the place a folder-level policy exception would sit. | `modules/folders` |
-| **Projects** `prod-data`, `prod-app`, `dev-app`, `net-host` | One workload or one shared service each; no default network; APIs per role. | `modules/project` |
+| **Projects** `prod-data` (the data), `prod-app` (production app), `dev-app` (development app), `net-host` (shared VPC host) | One workload or one shared service each; no default network; APIs per role. | `modules/project` |
 | **Organization policies** | The four guardrails, each with a reason and the request it blocks. | `policies/org-policies.yaml`, `modules/org-policies` |
 | **Shared VPC** in `net-host` | One network, two subnets (`subnet-prod` 10.50.0.0/24, `subnet-dev` 10.60.0.0/24 in `europe-west1`), service projects attached, `networkUser` on each subnet for its own team only, a logged deny-all ingress rule. | `design/landing-zone.yaml`, `modules/shared-vpc` |
-| **Perimeter** `sensitive_data` | A VPC Service Controls boundary around `prod-data`, restricting Cloud Storage and BigQuery, with one access level `office`. | `modules/perimeter` |
+| **VPC Service Controls perimeter** `sensitive_data` | A boundary around `prod-data`, restricting Cloud Storage and BigQuery, with one access level `office`. | `modules/perimeter` |
 | **Sensitive bucket** | `prod-data-sensitive` holding the made-up `customers.csv`; readable by the data reader only. | `modules/sensitive-bucket`, `data/customers.csv` |
 | **Test identities** | `team-prod-tester`, `team-dev-tester`, `data-reader`: keyless service accounts the operator impersonates, so every proof runs as the identity under test. | `modules/lab-identities` |
 | **`landing-zone` tool** | Checks the design and policies, explains the policies, renders them for `gcloud`, simulates the lesson's requests. | `src/landing_zone` |
@@ -33,7 +33,7 @@ flowchart TB
     subgraph perimeter["VPC Service Controls perimeter: storage, bigquery"]
         pdata
     end
-    pdata -. "copy out, or read from outside the access level: refused" .-> ext["Bucket outside the organization"]
+    pdata -. "copy out, or read from outside the access level: refused" .-> ext["Outside bucket<br/>in another project"]
 ```
 
 One request, end to end, for the lesson's attack:
