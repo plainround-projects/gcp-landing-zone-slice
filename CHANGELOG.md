@@ -10,3 +10,4 @@ All notable changes to this project are recorded here. The format follows [Keep 
 - Terraform: seven modules and a `lab` environment (folders, projects, organization policies, shared VPC, sensitive bucket, perimeter, test identities), dry run as the default for policies and the perimeter, native tests with a mock provider, tflint and checkov.
 - `landing-zone`: check the design, explain the policies, render them for `gcloud`, simulate which control stops each request in dry-run and enforced mode. Layered, typed, tested.
 - The lesson's runbook as scripts, the operating notes, ADRs and a CI workflow.
+- `tech/`: 33 technology notes and an index, one file per language, tool, service and file format, for a reader new to all of them.

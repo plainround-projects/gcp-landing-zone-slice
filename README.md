@@ -17,6 +17,7 @@ A slice of a Google Cloud landing zone as code: folders, four organization polic
 - `src/landing_zone/`: the `landing-zone` command: `check` the design, `explain` the policies, `render-policies` into the YAML `gcloud org-policies set-policy` takes, `simulate` the lesson's requests in dry-run and enforced mode.
 - `scripts/`: the lesson's runbook as the exact `gcloud` and `terraform` commands: bootstrap, deploy, prove each Done when line, read the dry run, enforce, attack, tear down.
 - `docs/operating-notes.md`: step 6, the exception process, how a change is tested, what the perimeter does not cover, break glass.
+- `tech/`: 33 notes, one per technology (Python, Terraform, Bash, Make, each Google Cloud service and every tool), written for a reader who has never met them. Start with [tech/README.md](tech/README.md).
 
 **No organization exists yet, so nothing has run against one.** Everything that can be checked without it is: the design and policies are validated, the lesson's 13 requests are answered as promised by the simulator, the Terraform is validated, planned offline (50 resources) and tested against a mock provider. The refusals, the dry-run log lines and the violation identifiers need the organization; the commands for them are ready (see "Done when").
 
@@ -168,6 +169,7 @@ Review checklist from the lesson, mapped: reasons and blocked requests (1), thre
 │   ├── modules/                    folders, project, org-policies, shared-vpc, perimeter, sensitive-bucket, lab-identities
 │   └── environments/lab/           main.tf, variables.tf, outputs.tf, lab.tfvars.example, tests/
 ├── scripts/                        bootstrap, deploy, render-policies, upload-sample, prove-*, read-dry-run, enforce, attack, teardown
+├── tech/                           33 technology notes and an index (README.md)
 └── docs/                           operating-notes.md, adr/
 ```
 
