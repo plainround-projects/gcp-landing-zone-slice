@@ -183,7 +183,7 @@ Dependency rule: `interfaces` -> `infrastructure` -> `application` -> `domain`, 
 
 ## Verification record
 
-Last verified on 2026-10-27 on macOS with Python 3.13, Terraform 1.17.0, tflint 0.65.0 (ruleset google 0.41.0), checkov 3.3.30. The commands and their results are in the build report. Not verified: any behavior against a real organization, including the exact wording of the audit log filters in `scripts/read-dry-run.sh` and `scripts/attack.sh`.
+Last verified on 2026-10-27 on macOS with Python 3.13, Terraform 1.17.0, tflint 0.65.0 (ruleset google 0.41.0), checkov 3.3.30. From a fresh clone: `make install`, `make check` (98 unit tests, lint, types, import rules, shellcheck, Terraform format, tflint, 8 module and environment validations, the offline plan of 50 resources, the Terraform tests, checkov), `make test-e2e` (3 tests), `make design` and `make simulate` passed; `make audit` found no known vulnerabilities. Not verified: any behavior against a real organization, including the exact wording of the audit log filters in `scripts/read-dry-run.sh` and `scripts/attack.sh`.
 
 ## License
 
