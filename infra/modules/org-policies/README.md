@@ -22,7 +22,7 @@ Used for: Step 2 (organization policies, dry run first).
 
 ## Example
 
-See `infra/environments/sandbox/main.tf`, which composes this module.
+See `infra/environments/lab/main.tf`, which composes this module.
 
 ## Tests
 

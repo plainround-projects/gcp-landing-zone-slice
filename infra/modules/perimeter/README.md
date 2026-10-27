@@ -28,7 +28,7 @@ Used for: Steps 4 and 5 (dry-run the perimeter, enforce and attack).
 
 ## Example
 
-See `infra/environments/sandbox/main.tf`, which composes this module.
+See `infra/environments/lab/main.tf`, which composes this module.
 
 ## Tests
 

@@ -25,7 +25,7 @@ Used for: Steps 1 and 3 (the four projects).
 
 ## Example
 
-See `infra/environments/sandbox/main.tf`, which composes this module.
+See `infra/environments/lab/main.tf`, which composes this module.
 
 ## Tests
 

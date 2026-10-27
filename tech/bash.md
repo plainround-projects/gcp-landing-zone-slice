@@ -266,6 +266,381 @@ gcloud projects delete "$QUOTA_PROJECT" --quiet
 
 Here you must type the suffix, not just `yes`, so a habit cannot delete the wrong lab. `sleep 300` waits five minutes for the relaxed perimeter to apply before `terraform destroy`; there is no signal to poll, so waiting is the honest option.
 
+## Every script, whole, in the order you run them
+
+Words used in the scripts, explained once. A **comment** starts with `#`. The first line `#!/usr/bin/env bash` is the **shebang**: it tells the system which program runs the file. A script must be **executable** (`chmod +x`, already done) to be started as `scripts/deploy.sh`. A **variable in capitals** such as `ORG_ID` is by convention an environment variable or a constant. **Standard output** is where a program prints normal text, **standard error** is where it prints complaints (`>&2` sends text there). An **exit status** is the number a program returns: 0 means success.
+
+All scripts except `prove.sh` start with `source "$(dirname "$0")/lib.sh"`. `$0` is the path the script was started with, `dirname` takes its folder, `$(...)` substitutes the result, and `source` runs `lib.sh` as if its lines were written here. The comment above it, `# shellcheck source=lib.sh`, tells the linter which file `source` loads.
+
+### `scripts/lib.sh`
+
+The header and the helpers were explained above. In full:
+
+`scripts/lib.sh`
+
+```bash
+#!/usr/bin/env bash
+# Shared by the runbook scripts: loads .env and derives the names the lesson uses in every command.
+# shellcheck disable=SC2034  # the variables are used by the scripts that source this file
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_DIR="$ROOT/infra/environments/lab"
+
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/.env"
+  set +a
+fi
+
+: "${ORG_ID:?set ORG_ID in .env (see .env.example)}"
+: "${NAME_SUFFIX:?set NAME_SUFFIX in .env}"
+QUOTA_PROJECT="lz-bootstrap-$NAME_SUFFIX"
+PROD_DATA="prod-data-$NAME_SUFFIX"
+PROD_APP="prod-app-$NAME_SUFFIX"
+DEV_APP="dev-app-$NAME_SUFFIX"
+NET_HOST="net-host-$NAME_SUFFIX"
+BUCKET="prod-data-sensitive-$NAME_SUFFIX"
+REGION="europe-west1"
+TEAM_PROD_SA="team-prod-tester@$PROD_APP.iam.gserviceaccount.com"
+TEAM_DEV_SA="team-dev-tester@$DEV_APP.iam.gserviceaccount.com"
+DATA_READER_SA="data-reader@$PROD_DATA.iam.gserviceaccount.com"
+
+# Quota project for every gcloud call that needs one (organization policies, Access Context Manager).
+export CLOUDSDK_BILLING_QUOTA_PROJECT="$QUOTA_PROJECT"
+
+# check "what is proved" command...: runs the command and prints PASS or FAIL.
+check() {
+  local what="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then
+    echo "PASS  $what"
+  else
+    echo "FAIL  $what"
+    FAILED=1
+  fi
+}
+
+# refused "what is refused" "text the refusal must contain" command...: PASS only if the command fails with that text.
+refused() {
+  local what="$1" text="$2" output
+  shift 2
+  if output="$("$@" 2>&1)"; then
+    echo "FAIL  $what: the command succeeded"
+    FAILED=1
+  elif grep -q -- "$text" <<<"$output"; then
+    echo "PASS  $what: refused ($text)"
+  else
+    echo "FAIL  $what: refused, but not with '$text':"
+    echo "$output" | head -5
+    FAILED=1
+  fi
+}
+FAILED=0
+```
+
+### `scripts/bootstrap.sh`: run once, as an organization admin
+
+`scripts/bootstrap.sh`
+
+```bash
+#!/usr/bin/env bash
+# Creates the quota project that Terraform and gcloud are charged for organization-level calls, links billing, enables the
+# APIs, and grants YOU (the operator) the organization-level roles the build needs. Run once, as an organization admin.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+: "${BILLING_ACCOUNT:?set BILLING_ACCOUNT in .env}"
+: "${OPERATOR_MEMBER:?set OPERATOR_MEMBER in .env}"
+
+gcloud projects create "$QUOTA_PROJECT" --organization="$ORG_ID" --labels=purpose=lab-bootstrap
+gcloud billing projects link "$QUOTA_PROJECT" --billing-account="$BILLING_ACCOUNT"
+gcloud services enable cloudresourcemanager.googleapis.com cloudbilling.googleapis.com serviceusage.googleapis.com \
+  orgpolicy.googleapis.com accesscontextmanager.googleapis.com iam.googleapis.com --project="$QUOTA_PROJECT"
+
+ROLES=(
+  roles/resourcemanager.folderAdmin
+  roles/resourcemanager.projectCreator
+  roles/orgpolicy.policyAdmin
+  roles/compute.xpnAdmin
+  roles/accesscontextmanager.policyAdmin
+)
+echo "Granting $OPERATOR_MEMBER these roles on organization $ORG_ID: ${ROLES[*]}"
+read -r -p "Type yes to continue: " answer
+[[ "$answer" == "yes" ]] || { echo "not confirmed"; exit 1; }
+for role in "${ROLES[@]}"; do
+  gcloud organizations add-iam-policy-binding "$ORG_ID" --member="$OPERATOR_MEMBER" --role="$role" --condition=None >/dev/null
+  echo "granted $role"
+done
+gcloud billing accounts add-iam-policy-binding "$BILLING_ACCOUNT" --member="$OPERATOR_MEMBER" --role=roles/billing.user >/dev/null
+echo "granted roles/billing.user on the billing account"
+echo "Next: scripts/deploy.sh"
+```
+
+- Lines 2 and 3 say what the script does. Line 6 and 7 stop the script with a message if `BILLING_ACCOUNT` or `OPERATOR_MEMBER` is empty (`: "${NAME:?message}"`).
+- `gcloud projects create "$QUOTA_PROJECT" --organization="$ORG_ID" --labels=purpose=lab-bootstrap` creates the bootstrap project that is billed for organization-level calls.
+- `gcloud billing projects link ... --billing-account=...` attaches the payer. `gcloud services enable A B C ... --project=...` turns on six APIs in it: Resource Manager, Cloud Billing, Service Usage, Organization Policy, Access Context Manager and IAM.
+- The `ROLES` array, the `echo`, the `read` confirmation and the loop were explained above. In the loop, `--condition=None` avoids a question about conditions, and `>/dev/null` hides the long policy the command would print; `echo "granted $role"` prints one short line instead.
+- The billing role is granted on the billing account, a different resource, so it has its own command. The last line tells you the next step.
+
+### `scripts/deploy.sh`: steps 1 to 5, the build part
+
+`scripts/deploy.sh`
+
+```bash
+#!/usr/bin/env bash
+# Steps 1-5, build part: folders, projects, organization policies (dry run), the shared VPC, the bucket and the perimeter
+# (dry run). Writes lab.tfvars from .env on the first run. Terraform asks before it applies.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+: "${BILLING_ACCOUNT:?set BILLING_ACCOUNT in .env}"
+: "${OPERATOR_MEMBER:?set OPERATOR_MEMBER in .env}"
+
+if [[ ! -f "$ENV_DIR/lab.tfvars" ]]; then
+  cat >"$ENV_DIR/lab.tfvars" <<VARS
+org_id           = "$ORG_ID"
+billing_account  = "$BILLING_ACCOUNT"
+quota_project_id = "$QUOTA_PROJECT"
+name_suffix      = "$NAME_SUFFIX"
+operator_member  = "$OPERATOR_MEMBER"
+policy_mode      = "dry_run"
+perimeter_mode   = "dry_run"
+access_policy_id = "${ACCESS_POLICY_ID:-}"
+VARS
+  echo "wrote $ENV_DIR/lab.tfvars"
+fi
+
+cd "$ENV_DIR" || exit 1
+terraform init
+terraform apply -var-file=lab.tfvars
+terraform output
+```
+
+- It writes `lab.tfvars` from `.env` only the first time, then `terraform init` (download the provider), `terraform apply -var-file=lab.tfvars` (show the plan, ask "yes", build) and `terraform output` (print the results).
+- Everything it builds starts in dry-run mode: `policy_mode = "dry_run"` and `perimeter_mode = "dry_run"` are in the file it writes.
+
+### `scripts/render-policies.sh`: step 2 without Terraform
+
+`scripts/render-policies.sh`
+
+```bash
+#!/usr/bin/env bash
+# The lesson's own route for step 2, without Terraform: render policies/org-policies.yaml into the YAML that
+# `gcloud org-policies set-policy` takes, first as a dry run, then enforced. Use this OR Terraform, not both.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+MODE="${1:-dry-run}"
+case "$MODE" in
+  dry-run) FLAG="--dry-run" ;;
+  enforced) FLAG="" ;;
+  *) echo "usage: $0 [dry-run|enforced]" >&2; exit 2 ;;
+esac
+
+OUT="$ROOT/build/org-policies-$MODE"
+# shellcheck disable=SC2086  # FLAG is empty or one word
+"$ROOT/.venv/bin/landing-zone" render-policies --org "$ORG_ID" --out "$OUT" $FLAG
+for file in "$OUT"/*.yaml; do
+  gcloud org-policies set-policy "$file"
+done
+gcloud org-policies list --organization="$ORG_ID"
+```
+
+Use this or Terraform for the policies, not both. `"$ROOT/.venv/bin/landing-zone" render-policies --org "$ORG_ID" --out "$OUT" $FLAG` calls the Python tool (see `argparse.md`) to write one YAML file per policy under `build/org-policies-MODE`; the loop gives each to `gcloud org-policies set-policy`; the last line lists what is now set.
+
+### `scripts/upload-sample.sh`: put the data in place
+
+`scripts/upload-sample.sh`
+
+```bash
+#!/usr/bin/env bash
+# Puts the made-up customers.csv into the sensitive bucket. Run before you enforce the perimeter: afterwards a laptop
+# outside the access level cannot write to the bucket either.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+gcloud storage cp "$ROOT/data/customers.csv" "gs://$BUCKET/customers.csv" --impersonate-service-account="$DATA_READER_SA" 2>/dev/null \
+  || gcloud storage cp "$ROOT/data/customers.csv" "gs://$BUCKET/customers.csv"
+gcloud storage ls -l "gs://$BUCKET/"
+```
+
+Run it before enforcing the perimeter: afterwards, a laptop outside every access level can no longer write to the bucket. `cmd1 2>/dev/null || cmd2` tries the first command with its complaints hidden and, if it fails, runs the second: first as the data reader, otherwise as you.
+
+### `scripts/read-dry-run.sh`: step 4
+
+`scripts/read-dry-run.sh`
+
+```bash
+#!/usr/bin/env bash
+# Step 4: make normal traffic with the perimeter in dry-run mode, then read what it WOULD have blocked.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+echo "== normal traffic: the data reader reads the object from this machine"
+gcloud storage cat "gs://$BUCKET/customers.csv" --impersonate-service-account="$DATA_READER_SA" | head -2
+echo "(wait a few minutes for the audit log entry)"
+echo "== dry-run violations: who was affected and why"
+gcloud logging read 'protoPayload.metadata.dryRun=true AND protoPayload.metadata.@type="type.googleapis.com/google.cloud.audit.VpcServiceControlAuditMetadata"' \
+  --project="$PROD_DATA" --freshness=1h --limit=10 \
+  --format='value(protoPayload.authenticationInfo.principalEmail, protoPayload.metadata.violationReason)'
+echo "NO_MATCHING_ACCESS_LEVEL: add an access level for the caller (office_ip_subnetworks); RESOURCES_NOT_IN_SAME_SERVICE_PERIMETER: add the project or an ingress rule."
+```
+
+Generates normal traffic (a read as the data reader, `| head -2` keeps two lines), reminds you the log arrives a few minutes later, then reads the dry-run violations and prints a hint for each reason code.
+
+### `scripts/enforce.sh`: steps 2 and 5, the switch
+
+`scripts/enforce.sh`
+
+```bash
+#!/usr/bin/env bash
+# Steps 2 and 5: flip the organization policies and the perimeter from dry run to enforced. Read the dry-run logs first
+# (scripts/read-dry-run.sh). Changes can take up to 30 minutes to apply; a test that "still works" proves nothing yet.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+read -r -p "Have you read the dry-run logs and fixed the legitimate cases? Type yes to enforce: " answer
+[[ "$answer" == "yes" ]] || { echo "not confirmed"; exit 1; }
+
+cd "$ENV_DIR" || exit 1
+terraform apply -var-file=lab.tfvars -var policy_mode=enforced -var perimeter_mode=enforced
+echo "Enforced. After the perimeter applies, Terraform cannot read the bucket from this machine either (that is the perimeter"
+echo "working): use 'terraform apply -refresh=false', or add your address to office_ip_subnetworks first."
+```
+
+The question must be answered with `yes`. `terraform apply -var-file=lab.tfvars -var policy_mode=enforced -var perimeter_mode=enforced` re-applies with two variables overridden on the command line (`-var name=value` beats the file). The `echo` lines warn that after the perimeter applies, Terraform on your laptop is outside it too: `-refresh=false` stops it from re-reading the bucket, or you add your own address to `office_ip_subnetworks` first.
+
+### `scripts/prove-policies.sh`: step 2's proof
+
+`scripts/prove-policies.sh`
+
+```bash
+#!/usr/bin/env bash
+# Step 2's Done when: a key, a bucket in a disallowed region and a VM with a public IP are each refused, naming the policy.
+# Needs the policies enforced (scripts/enforce.sh), plus a minute or so for them to apply.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+refused "creating a service account key" "Key creation is not allowed" \
+  gcloud iam service-accounts keys create /dev/null --iam-account="$TEAM_DEV_SA" --project="$DEV_APP"
+refused "a bucket in us-central1" "constraints/gcp.resourceLocations" \
+  gcloud storage buckets create "gs://$DEV_APP-us-test" --project="$DEV_APP" --location=us-central1
+refused "a VM with a public IP address in dev-app" "constraints/compute.vmExternalIpAccess" \
+  gcloud compute instances create vm1 --project="$DEV_APP" --zone="$REGION-b" \
+    --subnet="projects/$NET_HOST/regions/$REGION/subnetworks/subnet-dev" --machine-type=e2-micro \
+    --no-service-account --no-scopes --impersonate-service-account="$TEAM_DEV_SA"
+refused "a bucket with per-object ACLs" "constraints/storage.uniformBucketLevelAccess" \
+  gcloud storage buckets create "gs://$DEV_APP-acl-test" --project="$DEV_APP" --location="$REGION" --no-uniform-bucket-level-access
+
+exit "$FAILED"
+```
+
+Four `refused` checks: a key, a bucket in the US, a VM with a public address, a bucket with per-object ACLs. Each runs as the team-dev stand-in or as you, whichever the line says. `exit "$FAILED"` ends with 0 only if all four passed. Needs the policies enforced and a minute or so for them to apply.
+
+### `scripts/prove-network.sh`: step 3's proof
+
+`scripts/prove-network.sh`
+
+```bash
+#!/usr/bin/env bash
+# Step 3's Done when: a VM in each service project gets an address from its own subnet, and team A cannot create
+# resources in team B's subnet. Runs as the test identities, not as you.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+vm() { # vm NAME PROJECT SUBNET IDENTITY
+  gcloud compute instances create "$1" --project="$2" --zone="$REGION-b" --machine-type=e2-micro \
+    --subnet="projects/$NET_HOST/regions/$REGION/subnetworks/$3" --no-address --no-service-account --no-scopes \
+    --impersonate-service-account="$4"
+}
+address() { gcloud compute instances list --project="$1" --filter="name=$2" --format='value(networkInterfaces[0].networkIP)'; }
+
+vm vm1 "$PROD_APP" subnet-prod "$TEAM_PROD_SA" >/dev/null
+vm vm2 "$DEV_APP" subnet-dev "$TEAM_DEV_SA" >/dev/null
+check "the VM in prod-app has an address in 10.50.0.0/24" bash -c "[[ \"\$(gcloud compute instances list --project='$PROD_APP' --filter='name=vm1' --format='value(networkInterfaces[0].networkIP)')\" == 10.50.0.* ]]"
+check "the VM in dev-app has an address in 10.60.0.0/24" bash -c "[[ \"\$(gcloud compute instances list --project='$DEV_APP' --filter='name=vm2' --format='value(networkInterfaces[0].networkIP)')\" == 10.60.0.* ]]"
+echo "prod-app vm1: $(address "$PROD_APP" vm1)   dev-app vm2: $(address "$DEV_APP" vm2)"
+
+refused "team-prod in team-dev's subnet" "compute.subnetworks.use" vm vm3 "$PROD_APP" subnet-dev "$TEAM_PROD_SA"
+refused "team-dev in team-prod's subnet" "compute.subnetworks.use" vm vm4 "$DEV_APP" subnet-prod "$TEAM_DEV_SA"
+
+gcloud compute instances delete vm1 --project="$PROD_APP" --zone="$REGION-b" --quiet >/dev/null
+gcloud compute instances delete vm2 --project="$DEV_APP" --zone="$REGION-b" --quiet >/dev/null
+exit "$FAILED"
+```
+
+Covered in detail above. `address()` is a second small function that prints a VM's internal address; the `echo` line prints both for the learner to see.
+
+### `scripts/attack.sh`: step 5's proof
+
+`scripts/attack.sh`
+
+```bash
+#!/usr/bin/env bash
+# Step 5: with full read access (the data reader holds objectViewer), try to copy the object out of the perimeter and to
+# read it from a machine that matches no access level. Both must fail with a VPC Service Controls violation.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+: "${OUTSIDE_BUCKET:?set OUTSIDE_BUCKET in .env: a bucket in a project outside the organization}"
+
+refused "copy to a bucket outside the perimeter" "vpcServiceControlsUniqueIdentifier" \
+  gcloud storage cp "gs://$BUCKET/customers.csv" "gs://$OUTSIDE_BUCKET/" --impersonate-service-account="$DATA_READER_SA"
+refused "read from a machine that matches no access level" "vpcServiceControlsUniqueIdentifier" \
+  gcloud storage cat "gs://$BUCKET/customers.csv" --impersonate-service-account="$DATA_READER_SA"
+
+echo "== the violations in the audit log (IAM would have allowed both: the principal holds objectViewer)"
+gcloud logging read 'protoPayload.metadata.@type="type.googleapis.com/google.cloud.audit.VpcServiceControlAuditMetadata" AND NOT protoPayload.metadata.dryRun=true' \
+  --project="$PROD_DATA" --freshness=1h --limit=5 \
+  --format='value(protoPayload.authenticationInfo.principalEmail, protoPayload.metadata.violationReason, protoPayload.metadata.vpcServiceControlsUniqueId)'
+echo "Find one by its identifier: gcloud logging read 'protoPayload.metadata.vpcServiceControlsUniqueId=\"ID\"' --project=$PROD_DATA"
+exit "$FAILED"
+```
+
+`: "${OUTSIDE_BUCKET:?...}"` demands a bucket in a project outside the organization. The two `refused` calls expect the text `vpcServiceControlsUniqueIdentifier`, which appears in the refusal. The last lines read the violations from the audit log (see `cloud-logging-audit-logs.md`) and print a hint, and `exit "$FAILED"` reports the verdict.
+
+### `scripts/prove.sh`: all the proofs
+
+`scripts/prove.sh`
+
+```bash
+#!/usr/bin/env bash
+# Runs the proofs of steps 2, 3 and 5 in order. Exit status 1 if any fails.
+set -uo pipefail
+DIR="$(dirname "$0")"
+status=0
+"$DIR/prove-policies.sh" || status=1
+"$DIR/prove-network.sh" || status=1
+"$DIR/attack.sh" || status=1
+exit "$status"
+```
+
+`DIR="$(dirname "$0")"` is this script's folder, so the sibling scripts are found from anywhere. `"$DIR/prove-policies.sh" || status=1` runs one proof; if it fails the variable is set, and the script still goes on. `exit "$status"` ends with 1 if any failed.
+
+### `scripts/teardown.sh`: take it all down
+
+`scripts/teardown.sh`
+
+```bash
+#!/usr/bin/env bash
+# Relaxes the perimeter (an enforced perimeter blocks Terraform from reading the bucket), destroys everything Terraform
+# made, and deletes the quota project. Projects take 30 days to be deleted for good and can be restored until then.
+# shellcheck source=lib.sh
+source "$(dirname "$0")/lib.sh"
+
+read -r -p "Delete the lab (organization $ORG_ID, suffix $NAME_SUFFIX)? Type the suffix to confirm: " answer
+[[ "$answer" == "$NAME_SUFFIX" ]] || { echo "not confirmed"; exit 1; }
+
+cd "$ENV_DIR" || exit 1
+terraform apply -refresh=false -auto-approve -var-file=lab.tfvars -var perimeter_mode=dry_run -var policy_mode=dry_run -target=module.perimeter -target=module.org_policies
+echo "waiting 5 minutes for the relaxed perimeter to apply"
+sleep 300
+terraform destroy -var-file=lab.tfvars
+gcloud projects delete "$QUOTA_PROJECT" --quiet
+echo "Check for leftovers outside the projects: gcloud access-context-manager policies list --organization=$ORG_ID"
+```
+
+The order matters. First the perimeter and policies go back to dry run with `-target=module.perimeter -target=module.org_policies` (apply only these two modules) and `-refresh=false -auto-approve` (do not re-read, do not ask), because an enforced perimeter would stop Terraform from reading the bucket. Then five minutes of waiting, then `terraform destroy`, then the bootstrap project is deleted with `--quiet`. The last line prints a hint to check for a leftover access policy, which lives outside the projects.
+
 ## 6. Try it yourself
 
 ```bash

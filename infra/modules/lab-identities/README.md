@@ -24,7 +24,7 @@ Used for: Steps 3 and 5 (prove the subnet rules and attack as a principal with v
 
 ## Example
 
-See `infra/environments/sandbox/main.tf`, which composes this module.
+See `infra/environments/lab/main.tf`, which composes this module.
 
 ## Tests
 
