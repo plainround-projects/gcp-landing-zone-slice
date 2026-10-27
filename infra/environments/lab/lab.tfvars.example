@@ -1,0 +1,17 @@
+# Copy to lab.tfvars and edit. The values below are placeholders; `make plan` uses this file as it is.
+org_id           = "123456789012"
+billing_account  = "AAAAAA-BBBBBB-CCCCCC"
+quota_project_id = "lz-bootstrap-ab12cd"
+name_suffix      = "ab12cd"
+operator_member  = "user:operator@example-lab.org"
+
+# Both start in dry-run mode. scripts/enforce.sh flips them after you have read the logs.
+policy_mode    = "dry_run"
+perimeter_mode = "dry_run"
+
+# Leave empty to create the organization's access policy; set to its number if one already exists.
+access_policy_id = ""
+
+# Null keeps the design file's documentation range (203.0.113.0/24), which matches nobody. Your laptop is then outside
+# the access level, which is what step 5's second attack needs.
+# office_ip_subnetworks = ["198.51.100.7/32"]

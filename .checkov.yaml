@@ -1,0 +1,12 @@
+# make security
+directory:
+  - .
+framework:
+  - terraform
+  - github_actions
+  - secrets
+skip-path:
+  - .venv
+  - infra/environments/lab/.terraform
+quiet: true
+compact: true
