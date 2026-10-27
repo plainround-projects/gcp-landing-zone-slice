@@ -1,0 +1,62 @@
+# The landing-zone slice as data. Terraform (infra/environments/lab) builds it; the landing-zone tool checks it and
+# simulates requests against it. Names are the lesson's; Terraform appends a suffix to project ids and bucket names
+# because both are global.
+organization:
+  domain: example-lab.org
+
+folders:
+  - name: production
+  - name: non-production
+  - name: shared
+
+projects:
+  - name: prod-data
+    folder: production
+    role: data
+  - name: prod-app
+    folder: production
+    role: service
+  - name: dev-app
+    folder: non-production
+    role: service
+  - name: net-host
+    folder: shared
+    role: host
+
+shared_vpc:
+  host_project: net-host
+  network: shared-net
+  region: europe-west1
+  subnets:
+    - name: subnet-prod
+      cidr: 10.50.0.0/24
+      service_project: prod-app
+      user_groups:
+        - group:team-prod@example-lab.org
+    - name: subnet-dev
+      cidr: 10.60.0.0/24
+      service_project: dev-app
+      user_groups:
+        - group:team-dev@example-lab.org
+
+perimeter:
+  name: sensitive_data
+  title: Sensitive data
+  projects:
+    - prod-data
+  restricted_services:
+    - storage.googleapis.com
+    - bigquery.googleapis.com
+  access_levels:
+    - office
+
+access_levels:
+  - name: office
+    # 203.0.113.0/24 is a documentation range. Put your own office or home address here (a /32 is enough).
+    ip_subnetworks:
+      - 203.0.113.0/24
+
+sensitive_data:
+  project: prod-data
+  bucket: prod-data-sensitive
+  object: customers.csv

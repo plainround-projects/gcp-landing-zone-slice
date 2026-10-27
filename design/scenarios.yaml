@@ -1,0 +1,54 @@
+# Requests the lesson makes in steps 2, 3 and 5, with what the landing zone must answer. `landing-zone simulate` runs
+# them against design/landing-zone.yaml and policies/org-policies.yaml and fails when an answer differs.
+scenarios:
+  - name: create a service account key in dev-app
+    request: { type: create_service_account_key, project: dev-app }
+    expect: { allowed: false, control: org_policy, detail: iam.disableServiceAccountKeyCreation }
+
+  - name: create a bucket in us-central1 in dev-app
+    request: { type: create_bucket, project: dev-app, location: us-central1, uniform_access: true }
+    expect: { allowed: false, control: org_policy, detail: gcp.resourceLocations }
+
+  - name: create a bucket in europe-west1 in dev-app
+    request: { type: create_bucket, project: dev-app, location: europe-west1, uniform_access: true }
+    expect: { allowed: true }
+
+  - name: create a bucket with per-object ACLs in dev-app
+    request: { type: create_bucket, project: dev-app, location: europe-west1, uniform_access: false }
+    expect: { allowed: false, control: org_policy, detail: storage.uniformBucketLevelAccess }
+
+  - name: create a VM with a public address in dev-app
+    request: { type: create_vm, project: dev-app, zone: europe-west1-b, subnet: subnet-dev, external_ip: true, caller_groups: ["group:team-dev@example-lab.org"] }
+    expect: { allowed: false, control: org_policy, detail: compute.vmExternalIpAccess }
+
+  - name: create a private VM in dev-app on subnet-dev as team-dev
+    request: { type: create_vm, project: dev-app, zone: europe-west1-b, subnet: subnet-dev, external_ip: false, caller_groups: ["group:team-dev@example-lab.org"] }
+    expect: { allowed: true }
+
+  - name: team-prod creates a VM in prod-app on subnet-prod
+    request: { type: create_vm, project: prod-app, zone: europe-west1-b, subnet: subnet-prod, external_ip: false, caller_groups: ["group:team-prod@example-lab.org"] }
+    expect: { allowed: true }
+
+  - name: team-prod creates a VM in prod-app on team-dev's subnet
+    request: { type: create_vm, project: prod-app, zone: europe-west1-b, subnet: subnet-dev, external_ip: false, caller_groups: ["group:team-prod@example-lab.org"] }
+    expect: { allowed: false, control: shared_vpc_iam, detail: compute.subnetworks.use }
+
+  - name: a reader copies customers.csv to a bucket outside the organization
+    request: { type: copy_object, caller_can_read: true, source_project: prod-data, destination_project: outside-the-organization }
+    expect: { allowed: false, control: vpc_service_controls, detail: RESOURCES_NOT_IN_SAME_SERVICE_PERIMETER }
+
+  - name: a reader copies customers.csv to another bucket inside the perimeter
+    request: { type: copy_object, caller_can_read: true, source_project: prod-data, destination_project: prod-data }
+    expect: { allowed: true }
+
+  - name: a reader reads customers.csv from a laptop that matches no access level
+    request: { type: read_object, caller_can_read: true, project: prod-data, from_access_level: null }
+    expect: { allowed: false, control: vpc_service_controls, detail: NO_MATCHING_ACCESS_LEVEL }
+
+  - name: a reader reads customers.csv from the office access level
+    request: { type: read_object, caller_can_read: true, project: prod-data, from_access_level: office }
+    expect: { allowed: true }
+
+  - name: a principal without a read role reads customers.csv from the office
+    request: { type: read_object, caller_can_read: false, project: prod-data, from_access_level: office }
+    expect: { allowed: false, control: iam, detail: storage.objects.get }

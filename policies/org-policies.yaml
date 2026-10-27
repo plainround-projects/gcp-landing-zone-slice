@@ -1,0 +1,40 @@
+# The organization policies, one entry each, with the reason and the team request it blocks (step 1 asks for both).
+# Terraform reads this file (infra/modules/org-policies); `landing-zone render-policies` turns it into the YAML that
+# `gcloud org-policies set-policy` takes.
+policies:
+  - constraint: iam.disableServiceAccountKeyCreation
+    kind: boolean
+    enforce: true
+    level: organization
+    reason: A downloaded key is a password that never expires and cannot be tied to a person; workloads use the platform's short-lived credentials.
+    blocks:
+      request: A developer wants to download a key for a service account to run a script from a laptop.
+      instead: Impersonate the service account with their own identity, or use workload identity federation.
+
+  - constraint: gcp.resourceLocations
+    kind: list
+    allowed_values:
+      - in:eu-locations
+    level: organization
+    reason: The data must stay in the EU, and a location list is much easier to enforce at creation than to audit afterwards.
+    blocks:
+      request: A team wants a bucket in us-central1 because a tool they like defaults to it.
+      instead: Use an EU location (europe-west1), or ask for an exception on one folder, recorded in this file.
+
+  - constraint: storage.uniformBucketLevelAccess
+    kind: boolean
+    enforce: true
+    level: organization
+    reason: Per-object ACLs make "who can read this bucket" unanswerable from the bucket's IAM policy alone.
+    blocks:
+      request: A developer wants to share one object publicly by setting an object ACL.
+      instead: Grant a role on the bucket, or hand out a signed URL for that one object.
+
+  - constraint: compute.vmExternalIpAccess
+    kind: list
+    deny_all: true
+    level: organization
+    reason: No VM may be reachable from the internet by accident; public entry points are load balancers, which are reviewed.
+    blocks:
+      request: A developer wants a VM with a public IP address to demo to a customer.
+      instead: Put the demo behind the load balancer, which has the public address; the VM stays private.
