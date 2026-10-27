@@ -10,7 +10,7 @@ TF ?= terraform
 export
 
 .PHONY: help install lint lint-python lint-terraform format test test-python test-terraform test-e2e \
-        validate validate-terraform plan security audit check design simulate clean deploy prove teardown
+        validate validate-terraform plan security audit check design simulate clean deploy prove teardown up run down
 
 help: ## list the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | sort
@@ -92,11 +92,17 @@ simulate: $(STAMP) ## which control answers each of the lesson's requests, with 
 deploy: ## terraform apply with the policies and the perimeter in dry-run mode (needs the organization)
 	scripts/deploy.sh
 
+up: deploy ## alias of deploy (needs the organization)
+
+run: design simulate ## check the design, then answer the lesson's requests in dry-run and enforced mode (no organization needed)
+
 prove: ## the runbook checks for Done when steps 2 to 5 (needs the organization)
 	scripts/prove.sh
 
 teardown: ## destroy everything Terraform made and delete the bootstrap project (needs the organization)
 	scripts/teardown.sh
+
+down: teardown ## alias of teardown (needs the organization)
 
 clean:
 	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache .coverage .import_linter_cache

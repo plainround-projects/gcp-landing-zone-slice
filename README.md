@@ -42,6 +42,7 @@ No Docker. The deploy steps need an organization administrator once (`scripts/bo
 make install        # .venv from the hash-pinned lock file
 make design         # check the design and policies; print each policy with its reason and the request it blocks
 make simulate       # the lesson's 13 requests, answered with the perimeter in dry run and then enforced
+make run            # both of the above
 ```
 
 `make simulate` prints one line per request. The attack of step 5, from the enforced run and the dry run:
@@ -69,6 +70,8 @@ make validate       # terraform init -backend=false + validate on every module a
 make audit          # pip-audit over the locked dependencies
 make check          # lint + test + validate
 ```
+
+`make up` and `make down` are aliases of `make deploy` and `make teardown` and need the organization.
 
 ## Deploy to your own organization
 
