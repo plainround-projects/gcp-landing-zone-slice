@@ -10,6 +10,24 @@ A slice of a Google Cloud landing zone as code: folders, four organization polic
 | **Architecture** | [ARCHITECTURE.md](ARCHITECTURE.md), decisions in [docs/adr](docs/adr), operating notes in [docs/operating-notes.md](docs/operating-notes.md) |
 | **Author** | Sumit Srivastava |
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.svg">
+  <img alt="The organization example-lab.org with four policies, folders non-production, production and shared, the perimeter sensitive_data around prod-data, subnets for each team in net-host, and Terraform and the landing-zone tool reading the same two YAML files." src="docs/diagrams/architecture.svg">
+</picture>
+
+Policies sit at the top, each team gets only its own subnet, and the perimeter is the wall around `prod-data` that refuses what IAM would allow.
+
+## How one run flows
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
+  <img alt="The five steps of the lesson's attack: data-reader passes IAM, the perimeter sees the destination outside and refuses the copy, with warning rows for dry run and for a principal with no read role." src="docs/diagrams/flow.svg">
+</picture>
+
+The attack runs as a principal that can read, so IAM lets it through and only the perimeter stops it; the amber rows are dry run, where the copy succeeds, and a test with no read role, which never reaches the perimeter.
+
 ## What is here
 
 - `design/landing-zone.yaml` and `policies/org-policies.yaml`: the slice and the four policies as data, each policy with its reason and the team request it blocks. Terraform and the tool both read them.

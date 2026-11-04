@@ -18,6 +18,8 @@ A slice of a landing zone in an organization you own: three folders and four pro
 
 ## The hierarchy and the controls
 
+Drawn versions of this figure and of the walk-through: [the architecture](docs/diagrams/architecture.svg) and [one run](docs/diagrams/flow.svg).
+
 ```mermaid
 flowchart TB
     org["Organization example-lab.org<br/>policies: no keys, EU locations,<br/>uniform bucket access, no external IPs"]
