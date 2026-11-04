@@ -35,7 +35,7 @@ flowchart TB
     subgraph perimeter["VPC Service Controls perimeter: storage, bigquery"]
         pdata
     end
-    pdata -. "copy out, or read from outside the access level: refused" .-> ext["Outside bucket<br/>in another project"]
+    pdata -. "copy out, or read from outside the access level: refused" .-> ext["Outside bucket<br/>in a project outside the organization"]
 ```
 
 One request, end to end, for the lesson's attack:
